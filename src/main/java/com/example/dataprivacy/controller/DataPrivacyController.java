@@ -8,6 +8,8 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.io.FileReader;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -42,9 +44,9 @@ import org.springframework.web.bind.annotation.RestController;
  */
 
 /**
- * ABOUT THE CONTROLLER: This controller handles file upload/scan functionality for
- * the Data Privacy System. It accepts files via HTTP POST requests, saves them
- * temporarily on the server, and prepares them for processing.
+ * ABOUT THE CONTROLLER: This controller handles file upload/scan functionality
+ * for the Data Privacy System. It accepts files via HTTP POST requests, saves
+ * them temporarily on the server, and prepares them for processing.
  */
 
 @RestController
@@ -132,71 +134,70 @@ public class DataPrivacyController { // REST Controller for REST API.
 
 	// Adding File Scanning Functionality.
 	// This line expects the Client to pass the name of the file to be scanned.
-		public ResponseEntity<Map<String, List<String>>> scanFile(@RequestParam("fileName") String fileName) {
-		
+	public ResponseEntity<Map<String, Object>> scanFile(@RequestParam("fileName") String fileName) {
 
-			// Directory where the file are stored
-			String uploadDir = "uploads/";
-			// Combines the directory path wiht the file name to locate the file
-			File file = new File(uploadDir + fileName);
+		// Directory where the file are stored
+		String uploadDir = "uploads/";
+		// Combines the directory path wiht the file name to locate the file
+		File file = new File(uploadDir + fileName);
 
-			// If the file does not exist the server responds with a 400 Bad Request status
-			if (!file.exists()) {
-				return ResponseEntity.status(HttpStatus.BAD_REQUEST) .body(Map.of("Error", List.of("File not found: " + fileName))); //How does this ResponseEntity work and what does it mean? 
-			}
-			
-			
-			Map<String, List<String>> results = new HashMap<>();
-		    results.put("SSN", new ArrayList<>());
-		    results.put("Email", new ArrayList<>());
-		    results.put("CreditCard", new ArrayList<>());
+		// If the file does not exist the server responds with a 400 Bad Request status
+		if (!file.exists()) {
+			return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+					.body(Map.of("Error","File not found: " + fileName)); // How does this ResponseEntity work
+																					// and what does it mean?
+		}
 
-			try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
+		// this is a hash map for classified data that has three categories 
+		Map<String, List<String>> classifiedData = new HashMap<>();
+		classifiedData.put("SSNs", new ArrayList<>());
+		classifiedData.put("Emails", new ArrayList<>());
+		classifiedData.put("CreditCards", new ArrayList<>());
 
-				String line;
+		try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
 
-				// Patterns to scan for
-				Pattern ssnPattern = Pattern.compile("\\b\\d{3}-\\d{2}-\\d{4}\\b"); // 3 digits, followed by a dash, 2
-																					// digits, a dash, and 4 digits( e.g.,
-																					// 123-45-6789)
-				Pattern emailPattern = Pattern.compile("[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}"); // Matches valid
-																											// email formats
-																											// like
-																											// test@example.com
-				Pattern creditCardPattern = Pattern.compile("\\b(?:\\d{4}-){3}\\d{4}|\\d{16}\\b"); // Matches CreditCard
-																									// numbers in the format
-																									// ( 1111-2222-3333-4444
-																									// )
+			String line;
 
-				while ((line = reader.readLine()) != null) {
+			// Patterns for sensitive data
+			Pattern ssnPattern = Pattern.compile("\\b\\d{3}-\\d{2}-\\d{4}\\b"); // Social Security Number Patter
+			Pattern emailPattern = Pattern.compile("[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}"); // Email Pattern 
+			Pattern creditCardPattern = Pattern.compile("\\b(?:\\d{4}-){3}\\d{4}|\\d{16}\\b"); // Credit Card Pattern 
 
-					// Scan each line
-					// Match pattern in each line
-					Matcher ssnMatcher = ssnPattern.matcher(line);
-					Matcher emailMatcher = emailPattern.matcher(line);
-					Matcher creditCardMatcher = creditCardPattern.matcher(line);
-
-					while (ssnMatcher.find()) {
-		                results.get("SSN").add(ssnMatcher.group());
-		            }
-		            while (emailMatcher.find()) {
-		                results.get("Email").add(emailMatcher.group());
-		            }
-		            while (creditCardMatcher.find()) {
-		                results.get("CreditCard").add(creditCardMatcher.group());
-		            }
-
-				}
-
-				return ResponseEntity.ok(results);
+			while ((line = reader.readLine()) != null) {
 
 				
-			} catch (Exception e) {
-				e.printStackTrace();
-				return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-						.body(Map.of("Error", List.of("Error scanning file: " + e.getMessage())));
+				Matcher ssnMatcher = ssnPattern.matcher(line); //Performs match operation on a input string 
+				while(ssnMatcher.find()) {  // Find the next substring of the input string that matches data 
+					classifiedData.get("SSNs").add(ssnMatcher.group()); // Retrives the match substring for the entire pattern or a specific capturing group. 
+				}
+				Matcher emailMatcher = emailPattern.matcher(line);
+				while(emailMatcher.find()) {
+					classifiedData.get("Emails").add(emailMatcher.group());
+				}
+				
+				Matcher creditCardMatcher = creditCardPattern.matcher(line);
+				while(creditCardMatcher.find()) { 
+					classifiedData.get("CreditCards").add(creditCardMatcher.group());
+				}
+				
+			
+
 			}
-	
-	
+			
+			
+			// Add additional metadata
+			Map<String, Object> response = new HashMap<>();
+			response.put("filename", fileName); // The name of the file being scanned 
+			response.put("scanResults", classifiedData); // A map of the catergorized data 
+			response.put("scannedAt", LocalDateTime.now()); // Timestamp of the scan
+
+			return ResponseEntity.ok(response); // Returns the 200 ok response 
+
+		} catch (Exception e) {
+			e.printStackTrace();
+			return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+		            .body(Map.of("Error", "Error reading file: " + e.getMessage()));
+		}
+
 	}
 }
