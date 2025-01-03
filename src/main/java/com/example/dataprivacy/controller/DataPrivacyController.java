@@ -2,6 +2,12 @@ package com.example.dataprivacy.controller;
 
 import org.springframework.web.multipart.MultipartFile;
 
+import com.example.dataprivacy.entity.ScanResult;
+import com.example.dataprivacy.entity.ScanResultRepository;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+import jakarta.transaction.Transactional;
+
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
@@ -18,6 +24,7 @@ import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -79,7 +86,7 @@ public class DataPrivacyController { // REST Controller for REST API.
 		}
 		try {
 			// Define the directory where files will be temporarily saved
-			String uploadDir = "C:/Users/Samuel Alston/Postman/files/TestTextFile.txt";
+			String uploadDir = System.getProperty("user.dir") + "/uploads/";
 			File directory = new File(uploadDir);
 
 			// Ensure the directory exists; create it if it does not
@@ -91,10 +98,10 @@ public class DataPrivacyController { // REST Controller for REST API.
 			File destinationFile = new File(uploadDir + file.getOriginalFilename());
 
 			// Save the file to the destination directory
-			System.out.println("Saving file to: " + destinationFile.getAbsolutePath());
 			file.transferTo(destinationFile);
 
 			// Return success response with the absolute file path
+			System.out.println("Saving file to: " + destinationFile.getAbsolutePath());
 			return ResponseEntity.status(HttpStatus.OK)
 					.body("File uploaded successfully: " + destinationFile.getAbsolutePath());
 
@@ -132,72 +139,75 @@ public class DataPrivacyController { // REST Controller for REST API.
 	 * 
 	 */
 
-	// Adding File Scanning Functionality.
-	// This line expects the Client to pass the name of the file to be scanned.
-	public ResponseEntity<Map<String, Object>> scanFile(@RequestParam("fileName") String fileName) {
+	@Autowired
+    private ScanResultRepository scanResultRepository;
 
-		// Directory where the file are stored
-		String uploadDir = "uploads/";
-		// Combines the directory path wiht the file name to locate the file
-		File file = new File(uploadDir + fileName);
+	@Transactional
+	@PostMapping("/scan")
+	public ResponseEntity<Map<String, Object>> scanFile(@RequestParam("file") MultipartFile file) {
+	    try {
+	        // Step 1: Save the uploaded file temporarily
+	        String uploadDir = System.getProperty("user.dir") + "/uploads/";
+	        File uploadDirFile = new File(uploadDir);
+	        if (!uploadDirFile.exists()) {
+	            uploadDirFile.mkdirs(); // Ensure the directory exists
+	        }
 
-		// If the file does not exist the server responds with a 400 Bad Request status
-		if (!file.exists()) {
-			return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-					.body(Map.of("Error","File not found: " + fileName)); // How does this ResponseEntity work
-																					// and what does it mean?
-		}
+	        File uploadedFile = new File(uploadDir + file.getOriginalFilename());
+	        file.transferTo(uploadedFile);
 
-		// this is a hash map for classified data that has three categories 
-		Map<String, List<String>> classifiedData = new HashMap<>();
-		classifiedData.put("SSNs", new ArrayList<>());
-		classifiedData.put("Emails", new ArrayList<>());
-		classifiedData.put("CreditCards", new ArrayList<>());
+	        // Step 2: Perform scanning logic
+	        Pattern ssnPattern = Pattern.compile("\\b\\d{3}-\\d{2}-\\d{4}\\b"); // SSN pattern
+	        Pattern emailPattern = Pattern.compile("[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}"); // Email pattern
+	        Pattern creditCardPattern = Pattern.compile("\\b(?:\\d{4}-){3}\\d{4}\\b"); // Credit card pattern
 
-		try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
+	        Map<String, List<String>> classifiedData = new HashMap<>();
+	        classifiedData.put("SSNs", new ArrayList<>());
+	        classifiedData.put("Emails", new ArrayList<>());
+	        classifiedData.put("CreditCards", new ArrayList<>());
 
-			String line;
+	        try (BufferedReader reader = new BufferedReader(new FileReader(uploadedFile))) {
+	            String line;
+	            while ((line = reader.readLine()) != null) {
+	                // Match SSNs
+	                Matcher ssnMatcher = ssnPattern.matcher(line);
+	                while (ssnMatcher.find()) {
+	                    classifiedData.get("SSNs").add(ssnMatcher.group());
+	                }
 
-			// Patterns for sensitive data
-			Pattern ssnPattern = Pattern.compile("\\b\\d{3}-\\d{2}-\\d{4}\\b"); // Social Security Number Patter
-			Pattern emailPattern = Pattern.compile("[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}"); // Email Pattern 
-			Pattern creditCardPattern = Pattern.compile("\\b(?:\\d{4}-){3}\\d{4}|\\d{16}\\b"); // Credit Card Pattern 
+	                // Match Emails
+	                Matcher emailMatcher = emailPattern.matcher(line);
+	                while (emailMatcher.find()) {
+	                    classifiedData.get("Emails").add(emailMatcher.group());
+	                }
 
-			while ((line = reader.readLine()) != null) {
+	                // Match Credit Cards
+	                Matcher creditCardMatcher = creditCardPattern.matcher(line);
+	                while (creditCardMatcher.find()) {
+	                    classifiedData.get("CreditCards").add(creditCardMatcher.group());
+	                }
+	            }
+	        }
 
-				
-				Matcher ssnMatcher = ssnPattern.matcher(line); //Performs match operation on a input string 
-				while(ssnMatcher.find()) {  // Find the next substring of the input string that matches data 
-					classifiedData.get("SSNs").add(ssnMatcher.group()); // Retrives the match substring for the entire pattern or a specific capturing group. 
-				}
-				Matcher emailMatcher = emailPattern.matcher(line);
-				while(emailMatcher.find()) {
-					classifiedData.get("Emails").add(emailMatcher.group());
-				}
-				
-				Matcher creditCardMatcher = creditCardPattern.matcher(line);
-				while(creditCardMatcher.find()) { 
-					classifiedData.get("CreditCards").add(creditCardMatcher.group());
-				}
-				
-			
+	        // Step 3: Convert results to JSON
+	        ObjectMapper mapper = new ObjectMapper();
+	        String jsonResults = mapper.writeValueAsString(classifiedData);
 
-			}
-			
-			
-			// Add additional metadata
-			Map<String, Object> response = new HashMap<>();
-			response.put("filename", fileName); // The name of the file being scanned 
-			response.put("scanResults", classifiedData); // A map of the catergorized data 
-			response.put("scannedAt", LocalDateTime.now()); // Timestamp of the scan
+	        // Step 4: Save the scan results to the database
+	        scanResultRepository.saveScanResult(file.getOriginalFilename(), jsonResults, LocalDateTime.now());
 
-			return ResponseEntity.ok(response); // Returns the 200 ok response 
+	        // Step 5: Prepare response
+	        Map<String, Object> response = new HashMap<>();
+	        response.put("fileName", file.getOriginalFilename());
+	        response.put("scanResults", classifiedData);
+	        response.put("scannedAt", LocalDateTime.now());
 
-		} catch (Exception e) {
-			e.printStackTrace();
-			return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-		            .body(Map.of("Error", "Error reading file: " + e.getMessage()));
-		}
+	        return ResponseEntity.ok(response);
 
+	    } catch (Exception e) {
+	        e.printStackTrace();
+	        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+	                .body(Map.of("Error", "File upload or processing failed: " + e.getMessage()));
+	    }
 	}
 }
